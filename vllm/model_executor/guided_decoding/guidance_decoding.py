@@ -68,7 +68,7 @@ def _get_logits_processor(
         return GuidanceLogitsProcessor(mode.value, guide, tokenizer, whitespace_pattern)
     elif mode == GuidedDecodingMode.REGEX or mode == GuidedDecodingMode.CHOICE:
         return GuidanceLogitsProcessor(mode.value, guide, tokenizer)
-    # elif mode == GuidedDecodingMode.GRAMMAR:
-    #     return CFGLogitsProcessor(guide, tokenizer)
+    elif mode == GuidedDecodingMode.GRAMMAR:
+        return GuidanceLogitsProcessor(mode.value, guide, tokenizer)
     else:
         raise ValueError(f"Unknown guided decoding mode {mode}")

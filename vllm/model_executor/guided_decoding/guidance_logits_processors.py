@@ -46,6 +46,9 @@ class GuidanceLogitsProcessor:
             self.serialized_grammar = self.schema.ll_serialize()
         elif self.mode.lower() in ["regex", "choice"]:
             self.serialized_grammar = guidance.gen(regex=self.guide, temperature=0.0).ll_serialize()
+        elif self.mode.lower() == "grammar":
+            # TODO: what is the correct format for grammar?
+            self.serialized_grammar = self.guide
 
         t0 = time.time()
         if "guidance_tokenizer" not in self.metadata:
