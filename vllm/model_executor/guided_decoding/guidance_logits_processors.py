@@ -115,19 +115,18 @@ class GuidanceLogitsProcessor:
                 return masked_logits
 
             mask, resp = self.ll_interpreter.mid_process()
-            # if mask is None:
-            #     self.ll_interpreter.post_process(None)
-
             r = LLInterpreterResponse.model_validate_json(resp)
-            # response = r.progress.to_engine_call_response()
 
             if r.stop:
                 mask = torch.zeros_like(
                     logits, dtype=logits.dtype, device=logits.device
                 )
-                mask[self.guidance_tokenizer.eos_token_id] = 200.0
+                if self.guidance_tokenizer.eos_token_id is not None:
+                    mask[self.guidance_tokenizer.eos_token_id] = 200.0
                 self.is_stopped = True
             elif mask is None:
+                # NOTE: mask should not be None unless r.stop is True
+                # However, we are handling this case just in case llguidance allows free-style generation
                 mask = (
                     torch.zeros_like(logits, dtype=logits.dtype, device=logits.device)
                 )
