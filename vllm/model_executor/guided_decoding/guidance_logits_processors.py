@@ -41,8 +41,16 @@ class GuidanceLogitsProcessor:
                 schema = json.loads(self.guide)
             else:
                 schema = self.guide
+
+            whitespaces_config = {}
+            try:
+                whitespaces_config = json.loads(self.whitespace_pattern)
+            except Exception as e:
+                pass
         
-            self.schema = guidance.json(schema=schema, temperature=0.0)
+            self.schema = guidance.json(schema=schema, temperature=0.0, whitespace_flexible=whitespaces_config.get(
+                "whitespace_flexible", False
+            ))
             self.serialized_grammar = self.schema.ll_serialize()
         elif self.mode.lower() in ["regex", "choice"]:
             self.serialized_grammar = guidance.gen(regex=self.guide, temperature=0.0).ll_serialize()
@@ -50,30 +58,24 @@ class GuidanceLogitsProcessor:
             # TODO: what is the correct format for grammar?
             self.serialized_grammar = self.guide
 
-        t0 = time.time()
         if "guidance_tokenizer" not in self.metadata:
             self.metadata["guidance_tokenizer"] = TransformersTokenizer(
                 model=self.tokenizer.name_or_path, transformers_tokenizer=self.tokenizer
             )        
         self.guidance_tokenizer = self.metadata["guidance_tokenizer"]
-        print("GuidanceTokenizer init time:", time.time() - t0)
 
-        t0 = time.time()
         if "ll_tokenizer" not in self.metadata:            
             self.metadata["ll_tokenizer"] = llguidance.LLTokenizer(
                 llguidance.TokenizerWrapper(self.guidance_tokenizer)
             )
         self.ll_tokenizer = self.metadata["ll_tokenizer"]
-        print("LLTokenizer init time:", time.time() - t0)
         
-        t0 = time.time()
         self.ll_interpreter = llguidance.LLInterpreter(
             self.ll_tokenizer,
             json.dumps(self.serialized_grammar),
             enable_backtrack=False,
             log_level=int(os.environ.get("LLGUIDANCE_LOG_LEVEL", "1")),
         )
-        print("LLInterpreter init time:", time.time() - t0)
         
         self.initialized = True
 
