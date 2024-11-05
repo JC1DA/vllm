@@ -90,11 +90,11 @@ class GuidanceLogitsProcessor:
         prompt_tokens_ids: List[int],
         past_tokens_ids: list[int],
         logits: torch.Tensor,
-    ) -> torch.Tensor:
+    ) -> list[torch.Tensor]:
         self.initialize()
 
         if self.is_stopped:
-            return logits
+            return [logits]
 
         try:
             if len(past_tokens_ids) == 0:
@@ -113,12 +113,16 @@ class GuidanceLogitsProcessor:
                 # assert backtrack == 0
 
             if len(self.pending_ff_tokens) > 0:
-                ff_token = self.pending_ff_tokens.pop(0)
-                masked_logits = torch.zeros_like(
-                    logits, dtype=logits.dtype, device=logits.device
-                )
-                masked_logits[ff_token] = 200.0
-                return masked_logits
+                masked_logits_list = []
+                while len(self.pending_ff_tokens) > 0:
+                    ff_token = self.pending_ff_tokens.pop(0)
+                    masked_logits = torch.zeros_like(
+                        logits, dtype=logits.dtype, device=logits.device
+                    )
+                    masked_logits[ff_token] = 200.0
+                    masked_logits_list.append(masked_logits)
+
+                return masked_logits_list
 
             mask, resp = self.ll_interpreter.mid_process()
             r = LLInterpreterResponse.model_validate_json(resp)
@@ -159,5 +163,5 @@ class GuidanceLogitsProcessor:
             print("Error in GuidanceJsonLogitsProcessor: ", e)
             raise e
 
-        return masked_logits
+        return [masked_logits]
     

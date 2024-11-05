@@ -1676,7 +1676,7 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
                     torch.tensor(model_forward_time + orig_model_forward_time))
             return hidden_or_intermediate_states
 
-        logits = self.model.compute_logits(hidden_or_intermediate_states,
+        logits: Union[torch.Tensor, list[list[torch.Tensor]]] = self.model.compute_logits(hidden_or_intermediate_states,
                                            model_input.sampling_metadata)
 
         if not self.is_driver_worker:
@@ -1686,10 +1686,35 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             model_input.async_callback()
 
         # Sample the next token.
-        output: SamplerOutput = self.model.sample(
-            logits=logits,
-            sampling_metadata=model_input.sampling_metadata,
-        )
+        if isinstance(logits, torch.Tensor):
+            output: SamplerOutput = self.model.sample(
+                logits=logits,
+                sampling_metadata=model_input.sampling_metadata,
+            )
+        else:
+            # there are instances with fast-forwarded tokens
+            batch_row_outputs = []
+            for logit_row in logits:
+                row_outputs: list[SamplerOutput] = []
+                for _logits in logit_row:
+                    # add dim-0 to make it a batch
+                    _logits.unsqueeze_(0)
+                    output: SamplerOutput = self.model.sample(
+                        logits=_logits,
+                        sampling_metadata=model_input.sampling_metadata,
+                    )
+                    row_outputs.append(output)
+
+                if len(row_outputs) == 1:
+                    batch_row_outputs.append(row_outputs[0])
+                else:
+                    # merge the outputs into a single output
+                    sampler_output: List[CompletionSequenceGroupOutput] = []
+                    for row in row_outputs:
+                        sampler_output.append(
+                            row.outputs[0]
+                        )
+
         if (self.observability_config is not None
                 and self.observability_config.collect_model_forward_time
                 and output is not None):
