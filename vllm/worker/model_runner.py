@@ -47,7 +47,7 @@ from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.prompt_adapter.worker_manager import (
     LRUCacheWorkerPromptAdapterManager)
 from vllm.sampling_params import SamplingParams
-from vllm.sequence import IntermediateTensors, SequenceGroupMetadata
+from vllm.sequence import CompletionSequenceGroupOutput, IntermediateTensors, SequenceGroupMetadata, SequenceOutput
 from vllm.transformers_utils.config import uses_mrope
 from vllm.utils import (DeviceMemoryProfiler, PyObjectCache, async_tensor_h2d,
                         flatten_2d_lists, is_pin_memory_available,
@@ -1709,11 +1709,9 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
                     batch_row_outputs.append(row_outputs[0])
                 else:
                     # merge the outputs into a single output
-                    sampler_output: List[CompletionSequenceGroupOutput] = []
+                    seq_outputs: list[SequenceOutput] = []
                     for row in row_outputs:
-                        sampler_output.append(
-                            row.outputs[0]
-                        )
+                        seq_outputs.extend(row.outputs[0].samples)
 
         if (self.observability_config is not None
                 and self.observability_config.collect_model_forward_time
