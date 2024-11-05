@@ -11,6 +11,7 @@ from guidance.models import TransformersTokenizer
 from guidance._schema import LLInterpreterResponse
 from transformers import PreTrainedTokenizerBase
 
+
 class GuidanceLogitsProcessor:
     metadata = {}
 
@@ -35,7 +36,7 @@ class GuidanceLogitsProcessor:
     def initialize(self):
         if self.initialized:
             return
-        
+
         if self.mode.lower() == "json":
             if isinstance(self.guide, str):
                 schema = json.loads(self.guide)
@@ -47,13 +48,19 @@ class GuidanceLogitsProcessor:
                 whitespaces_config = json.loads(self.whitespace_pattern)
             except Exception as e:
                 pass
-        
-            self.schema = guidance.json(schema=schema, temperature=0.0, whitespace_flexible=whitespaces_config.get(
-                "whitespace_flexible", False
-            ))
+
+            self.schema = guidance.json(
+                schema=schema,
+                temperature=0.0,
+                whitespace_flexible=whitespaces_config.get(
+                    "whitespace_flexible", False
+                ),
+            )
             self.serialized_grammar = self.schema.ll_serialize()
         elif self.mode.lower() in ["regex", "choice"]:
-            self.serialized_grammar = guidance.gen(regex=self.guide, temperature=0.0).ll_serialize()
+            self.serialized_grammar = guidance.gen(
+                regex=self.guide, temperature=0.0
+            ).ll_serialize()
         elif self.mode.lower() == "grammar":
             # TODO: what is the correct format for grammar?
             self.serialized_grammar = self.guide
@@ -61,22 +68,22 @@ class GuidanceLogitsProcessor:
         if "guidance_tokenizer" not in self.metadata:
             self.metadata["guidance_tokenizer"] = TransformersTokenizer(
                 model=self.tokenizer.name_or_path, transformers_tokenizer=self.tokenizer
-            )        
+            )
         self.guidance_tokenizer = self.metadata["guidance_tokenizer"]
 
-        if "ll_tokenizer" not in self.metadata:            
+        if "ll_tokenizer" not in self.metadata:
             self.metadata["ll_tokenizer"] = llguidance.LLTokenizer(
                 llguidance.TokenizerWrapper(self.guidance_tokenizer)
             )
         self.ll_tokenizer = self.metadata["ll_tokenizer"]
-        
+
         self.ll_interpreter = llguidance.LLInterpreter(
             self.ll_tokenizer,
             json.dumps(self.serialized_grammar),
             enable_backtrack=False,
             log_level=int(os.environ.get("LLGUIDANCE_LOG_LEVEL", "1")),
         )
-        
+
         self.initialized = True
 
     def __call__(
@@ -94,7 +101,7 @@ class GuidanceLogitsProcessor:
             if len(past_tokens_ids) == 0:
                 self.ll_interpreter.process_prompt(prompt_tokens_ids)
 
-            if self.new_sampling:
+            if self.new_sampling and len(past_tokens_ids) > 0:
                 backtrack, ff_tokens = self.ll_interpreter.post_process(
                     past_tokens_ids[-1]
                 )
@@ -127,8 +134,8 @@ class GuidanceLogitsProcessor:
             elif mask is None:
                 # NOTE: mask should not be None unless r.stop is True
                 # However, we are handling this case just in case llguidance allows free-style generation
-                mask = (
-                    torch.zeros_like(logits, dtype=logits.dtype, device=logits.device)
+                mask = torch.zeros_like(
+                    logits, dtype=logits.dtype, device=logits.device
                 )
             else:
                 mask = np.frombuffer(mask, dtype=np.uint8)
