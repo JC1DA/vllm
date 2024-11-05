@@ -65,17 +65,17 @@ class GuidanceLogitsProcessor:
             # TODO: what is the correct format for grammar?
             self.serialized_grammar = self.guide
 
-        if "guidance_tokenizer" not in self.metadata:
-            self.metadata["guidance_tokenizer"] = TransformersTokenizer(
+        if f"guidance_tokenizer_{self.tokenizer_name}" not in self.metadata:
+            self.metadata[f"guidance_tokenizer_{self.tokenizer_name}"] = TransformersTokenizer(
                 model=self.tokenizer.name_or_path, transformers_tokenizer=self.tokenizer
             )
-        self.guidance_tokenizer = self.metadata["guidance_tokenizer"]
+        self.guidance_tokenizer = self.metadata[f"guidance_tokenizer_{self.tokenizer_name}"]
 
-        if "ll_tokenizer" not in self.metadata:
-            self.metadata["ll_tokenizer"] = llguidance.LLTokenizer(
+        if f"ll_tokenizer_{self.tokenizer_name}" not in self.metadata:
+            self.metadata[f"ll_tokenizer_{self.tokenizer_name}"] = llguidance.LLTokenizer(
                 llguidance.TokenizerWrapper(self.guidance_tokenizer)
             )
-        self.ll_tokenizer = self.metadata["ll_tokenizer"]
+        self.ll_tokenizer = self.metadata[f"ll_tokenizer_{self.tokenizer_name}"]
 
         self.ll_interpreter = llguidance.LLInterpreter(
             self.ll_tokenizer,
