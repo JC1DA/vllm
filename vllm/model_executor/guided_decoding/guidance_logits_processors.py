@@ -1,5 +1,4 @@
 import os
-import time
 import guidance
 import torch
 import json
@@ -7,10 +6,10 @@ import numpy as np
 import llguidance  # type: ignore[import-untyped]
 from pydantic import BaseModel
 from typing import Type, Union, List
-from guidance.models import TransformersTokenizer
 from guidance._schema import LLInterpreterResponse
 from transformers import PreTrainedTokenizerBase
-
+from typing import Union
+from vllm.model_executor.guided_decoding.guidance_utils import TransformersTokenizer
 
 class GuidanceLogitsProcessor:
     metadata = {}
@@ -161,3 +160,4 @@ class GuidanceLogitsProcessor:
             raise e
 
         return masked_logits
+    
