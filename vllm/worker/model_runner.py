@@ -1697,15 +1697,16 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
         else:
             # there are instances with fast-forwarded tokens
             batch_row_outputs: list[CompletionSequenceGroupOutput] = []
-            for logit_row in logits:
+            for logit_row_idx, logit_row in enumerate(logits):
                 row_outputs: list[SamplerOutput] = []
                 for _logit_idx, _logits in enumerate(logit_row):
                     # add dim-0 to make it a batch
                     _logits.unsqueeze_(0)
-                    new_seq_group = model_input.sampling_metadata.seq_groups[_logit_idx]
+                    new_seq_group = model_input.sampling_metadata.seq_groups[logit_row_idx]
                     new_sampling_metadata = SamplingMetadata(
                         seq_groups=[new_seq_group],
-                        selected_token_indices=torch.tensor([0], dtype=model_input.sampling_metadata.selected_token_indices.dtype, device=model_input.sampling_metadata.selected_token_indices.device),
+                        #selected_token_indices=torch.tensor([0], dtype=model_input.sampling_metadata.selected_token_indices.dtype, device=model_input.sampling_metadata.selected_token_indices.device),
+                        selected_token_indices=model_input.sampling_metadata.selected_token_indices[logit_row_idx:logit_row_idx+1],
                         categorized_sample_indices=model_input.sampling_metadata.categorized_sample_indices,
                         num_prompts=model_input.sampling_metadata.num_prompts,
                         skip_sampler_cpu_output=model_input.sampling_metadata.skip_sampler_cpu_output,
@@ -1734,6 +1735,7 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
                         CompletionSequenceGroupOutput(seq_outputs,
                                               group_prompt_logprobs_list)
                     )
+                    
 
             output = SamplerOutput(batch_row_outputs)
 

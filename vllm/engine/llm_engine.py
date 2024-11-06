@@ -46,7 +46,7 @@ from vllm.sampling_params import RequestOutputKind, SamplingParams
 from vllm.sequence import (EmbeddingSequenceGroupOutput, ExecuteModelRequest,
                            ParallelSampleSequenceGroup, Sequence,
                            SequenceGroup, SequenceGroupBase,
-                           SequenceGroupMetadata, SequenceGroupOutput,
+                           SequenceGroupMetadata, SequenceGroupOutput, SequenceStage,
                            SequenceStatus)
 from vllm.tracing import (SpanAttributes, SpanKind, extract_trace_context,
                           init_tracer)
@@ -1264,6 +1264,7 @@ class LLMEngine:
             if seq_group.is_finished():
                 continue
 
+            token_chunk_size = 0
             if self.scheduler_config.is_multi_step:
                 # Updates happen only if the sequence is prefill
                 self._update_num_computed_tokens_for_multi_step_prefill(
@@ -1276,22 +1277,29 @@ class LLMEngine:
                 seq_group.update_num_computed_tokens(token_chunk_size)
 
             if seq_group_metadata.do_sample:
-                assert len(sequence_group_outputs.samples) == 1, (
-                    "Async output processor expects a single sample"
-                    " (i.e sampling_params.n == 1)")
-                sample = sequence_group_outputs.samples[0]
+                # assert len(sequence_group_outputs.samples) == 1, (
+                #     "Async output processor expects a single sample"
+                #     " (i.e sampling_params.n == 1)")
 
+                # sample = sequence_group_outputs.samples[0]
                 assert len(seq_group.seqs) == 1
-                seq = seq_group.seqs[0]
 
-                if self.scheduler_config.is_multi_step:
-                    is_prefill_append = seq.data.get_num_uncomputed_tokens(
-                    ) == 0
-                    seq.append_token_id(sample.output_token, sample.logprobs)
-                    if not is_prefill_append:
-                        seq_group.update_num_computed_tokens(1)
-                else:
-                    seq.append_token_id(sample.output_token, sample.logprobs)
+                seq = seq_group.seqs[0]
+                for sample in sequence_group_outputs.samples:                                        
+                    if self.scheduler_config.is_multi_step:
+                        is_prefill_append = seq.data.get_num_uncomputed_tokens(
+                        ) == 0
+                        seq.append_token_id(sample.output_token, sample.logprobs)
+                        if not is_prefill_append:
+                            seq_group.update_num_computed_tokens(1)
+                    else:
+                        seq.append_token_id(sample.output_token, sample.logprobs)
+
+                # if seq.data.get_num_uncomputed_tokens() > 1:
+                #     seq.data._stage = SequenceStage.PREFILL
+
+                if len(sequence_group_outputs.samples) > token_chunk_size:
+                    seq_group.update_num_computed_tokens(len(sequence_group_outputs.samples) - token_chunk_size)
 
     def step(self) -> List[Union[RequestOutput, EmbeddingRequestOutput]]:
         """Performs one decoding iteration and returns newly generated results.
