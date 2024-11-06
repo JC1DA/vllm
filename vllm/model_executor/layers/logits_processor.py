@@ -179,32 +179,13 @@ def _apply_logits_processors(
                 assert isinstance(logits_row, torch.Tensor) or isinstance(logits_row, list), "logits_row should be a tensor or a list of tensors"
             logits_processed += 1
 
-    # for seq_group in sampling_metadata.seq_groups:
-    #     seq_ids = seq_group.seq_ids
-    #     sampling_params = seq_group.sampling_params
-    #     logits_processors = sampling_params.logits_processors
-    #     if logits_processors:
-    #         found_logits_processors = True
+    max_len = 0
+    for i in range(len(all_logits)):
+        if len(all_logits[i]) > max_len:
+            max_len = len(all_logits[i])
 
-    #         for seq_id, logits_row_idx in zip(seq_ids,
-    #                                           seq_group.sample_indices):
-    #             logits_row = logits[logits_row_idx]
-    #             past_tokens_ids = seq_group.seq_data[seq_id].output_token_ids
-    #             prompt_tokens_ids = seq_group.seq_data[seq_id].prompt_token_ids
-
-    #             for logits_processor in logits_processors:
-    #                 parameters = inspect.signature(logits_processor).parameters
-    #                 if len(parameters) == 3:
-    #                     logits_row = logits_processor(prompt_tokens_ids,
-    #                                                   past_tokens_ids,
-    #                                                   logits_row)
-    #                 else:
-    #                     logits_row = logits_processor(past_tokens_ids,
-    #                                                   logits_row)
-
-    #             logits[logits_row_idx] = logits_row
-
-    #     logits_processed += len(seq_group.sample_indices) + len(
-    #         seq_group.prompt_logprob_indices)
+    if max_len == 1:
+        all_logits = [logits[0] for logits in all_logits]
+        all_logits = torch.stack(all_logits, dim=0)
 
     return all_logits

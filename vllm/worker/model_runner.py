@@ -39,6 +39,7 @@ from vllm.model_executor.model_loader import get_model
 from vllm.model_executor.model_loader.tensorizer import TensorizerConfig
 from vllm.model_executor.models import supports_lora, supports_multimodal
 from vllm.model_executor.models.utils import set_cpu_offload_max_bytes
+from vllm.model_executor.sampling_metadata import SequenceGroupToSample
 from vllm.multimodal import (MULTIMODAL_REGISTRY, BatchedTensorInputs,
                              MultiModalInputs, MultiModalRegistry)
 from vllm.platforms import current_platform
@@ -58,6 +59,8 @@ from vllm.worker.model_runner_base import (
     _add_sampling_metadata_broadcastable_dict,
     _init_attn_metadata_from_tensor_dict,
     _init_sampling_metadata_from_tensor_dict, dump_input_when_exception)
+
+from vllm.sequence import PromptLogprobs
 
 if TYPE_CHECKING:
     from vllm.attention.backends.abstract import AttentionBackend
@@ -1693,15 +1696,24 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             )
         else:
             # there are instances with fast-forwarded tokens
-            batch_row_outputs = []
+            batch_row_outputs: list[CompletionSequenceGroupOutput] = []
             for logit_row in logits:
                 row_outputs: list[SamplerOutput] = []
-                for _logits in logit_row:
+                for _logit_idx, _logits in enumerate(logit_row):
                     # add dim-0 to make it a batch
                     _logits.unsqueeze_(0)
+                    new_seq_group = model_input.sampling_metadata.seq_groups[_logit_idx]
+                    new_sampling_metadata = SamplingMetadata(
+                        seq_groups=[new_seq_group],
+                        selected_token_indices=torch.tensor([0], dtype=model_input.sampling_metadata.selected_token_indices.dtype, device=model_input.sampling_metadata.selected_token_indices.device),
+                        categorized_sample_indices=model_input.sampling_metadata.categorized_sample_indices,
+                        num_prompts=model_input.sampling_metadata.num_prompts,
+                        skip_sampler_cpu_output=model_input.sampling_metadata.skip_sampler_cpu_output,
+                        reuse_sampling_tensors=model_input.sampling_metadata.reuse_sampling_tensors,
+                    )
                     output: SamplerOutput = self.model.sample(
                         logits=_logits,
-                        sampling_metadata=model_input.sampling_metadata,
+                        sampling_metadata=new_sampling_metadata
                     )
                     row_outputs.append(output)
 
@@ -1710,8 +1722,20 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
                 else:
                     # merge the outputs into a single output
                     seq_outputs: list[SequenceOutput] = []
+                    group_prompt_logprobs_list: PromptLogprobs = []
                     for row in row_outputs:
                         seq_outputs.extend(row.outputs[0].samples)
+                        prompt_logprobs = row.outputs[0].prompt_logprobs
+                        if isinstance(prompt_logprobs, list):
+                            group_prompt_logprobs_list.extend(prompt_logprobs)
+                        else:
+                            group_prompt_logprobs_list.append(prompt_logprobs)
+                    batch_row_outputs.append(
+                        CompletionSequenceGroupOutput(seq_outputs,
+                                              group_prompt_logprobs_list)
+                    )
+
+            output = SamplerOutput(batch_row_outputs)
 
         if (self.observability_config is not None
                 and self.observability_config.collect_model_forward_time
