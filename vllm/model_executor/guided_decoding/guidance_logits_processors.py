@@ -101,7 +101,11 @@ class GuidanceLogitsProcessor:
     ) -> list[torch.Tensor]:
         self.initialize()
 
-        print("past_tokens_ids", self.guidance_tokenizer.decode(past_tokens_ids))
+        print(
+            "past_tokens_ids",
+            past_tokens_ids,
+            self.guidance_tokenizer.decode(past_tokens_ids),
+        )
 
         if self.is_stopped:
             return [logits]
