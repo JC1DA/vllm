@@ -12,9 +12,13 @@ from vllm.distributed import (
     tensor_model_parallel_gather,
 )
 from vllm.model_executor.layers.vocab_parallel_embedding import VocabParallelEmbedding
-from vllm.model_executor.sampling_metadata import SamplingMetadata, SequenceGroupToSample
+from vllm.model_executor.sampling_metadata import (
+    SamplingMetadata,
+    SequenceGroupToSample,
+)
 from vllm.platforms import current_platform
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 class LogitsProcessor(nn.Module):
     """Process logits and apply logits processors from sampling metadata.
@@ -77,7 +81,9 @@ class LogitsProcessor(nn.Module):
 
             # Apply logits processors (if any).
             if sampling_metadata is not None:
-                logits = _apply_logits_processors(self.thread_pool, logits, sampling_metadata)
+                logits = _apply_logits_processors(
+                    self.thread_pool, logits, sampling_metadata
+                )
 
         return logits
 
@@ -119,12 +125,13 @@ def _prune_hidden_states(
 ) -> torch.Tensor:
     return hidden_states.index_select(0, sampling_metadata.selected_token_indices)
 
+
 def _apply_logits_processors_per_seq(
     logits_row_idx: int,
     logits_row: torch.Tensor,
     past_tokens_ids: list[int],
     prompt_tokens_ids: list[int],
-    logits_processors: list
+    logits_processors: list,
 ):
     for logits_processor in logits_processors:
         parameters = inspect.signature(logits_processor).parameters
@@ -137,6 +144,7 @@ def _apply_logits_processors_per_seq(
 
     return logits_row_idx, logits_row
 
+
 def _apply_logits_processors(
     thread_pool: ThreadPoolExecutor,
     logits: torch.Tensor,
@@ -145,16 +153,36 @@ def _apply_logits_processors(
     logits_processed = 0
     args_list = []
     all_logits = [[] for _ in range(logits.shape[0])]
+    to_not_merge = False
     for seq_group in sampling_metadata.seq_groups:
         seq_ids = seq_group.seq_ids
         sampling_params = seq_group.sampling_params
         logits_processors = sampling_params.logits_processors
+        num_indices_per_seq_id = len(seq_group.sample_indices) // len(seq_ids)
+        if num_indices_per_seq_id > 1:
+            to_not_merge = True
         if logits_processors:
-            for seq_id, logits_row_idx in zip(seq_ids, seq_group.sample_indices):
-                logits_row = logits[logits_row_idx]
-                past_tokens_ids = seq_group.seq_data[seq_id].output_token_ids
-                prompt_tokens_ids = seq_group.seq_data[seq_id].prompt_token_ids
-                args_list.append((logits_row_idx, logits_row, past_tokens_ids, prompt_tokens_ids, logits_processors))
+            # for seq_id, logits_row_idx in zip(seq_ids, seq_group.sample_indices[-1:]):
+            for seq_id in seq_ids:
+                for idx in range(num_indices_per_seq_id):
+                    logits_row_idx = seq_group.sample_indices[idx]
+
+                    if idx != num_indices_per_seq_id - 1:
+                        all_logits[logits_row_idx].append(logits[logits_row_idx])
+                        continue
+
+                    logits_row = logits[logits_row_idx]
+                    past_tokens_ids = seq_group.seq_data[seq_id].output_token_ids
+                    prompt_tokens_ids = seq_group.seq_data[seq_id].prompt_token_ids
+                    args_list.append(
+                        (
+                            logits_row_idx,
+                            logits_row,
+                            past_tokens_ids,
+                            prompt_tokens_ids,
+                            logits_processors,
+                        )
+                    )
         else:
             logits_processed += len(seq_group.sample_indices) + len(
                 seq_group.prompt_logprob_indices
@@ -176,7 +204,9 @@ def _apply_logits_processors(
             elif isinstance(logits_row, list):
                 all_logits[logits_row_idx].extend(logits_row)
             else:
-                assert isinstance(logits_row, torch.Tensor) or isinstance(logits_row, list), "logits_row should be a tensor or a list of tensors"
+                assert isinstance(logits_row, torch.Tensor) or isinstance(
+                    logits_row, list
+                ), "logits_row should be a tensor or a list of tensors"
             logits_processed += 1
 
     max_len = 0
@@ -184,7 +214,7 @@ def _apply_logits_processors(
         if len(all_logits[i]) > max_len:
             max_len = len(all_logits[i])
 
-    if max_len == 1:
+    if max_len == 1 and not to_not_merge:
         all_logits = [logits[0] for logits in all_logits]
         all_logits = torch.stack(all_logits, dim=0)
 

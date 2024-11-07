@@ -1848,34 +1848,136 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
         else:
             # there are instances with fast-forwarded tokens
             batch_row_outputs: list[CompletionSequenceGroupOutput] = []
-            for logit_row_idx, logit_row in enumerate(logits):
-                row_outputs: list[SamplerOutput] = []
-                _seq_group = model_input.sampling_metadata.seq_groups[logit_row_idx]
-                _seq_group.sampling_params = _seq_group.sampling_params.clone()
-                # _seq_group.sampling_params.n = len(logit_row)
-                for _logit_idx, _logits in enumerate(logit_row):
-                    # add dim-0 to make it a batch
-                    _logits.unsqueeze_(0)
-                    new_sampling_metadata = SamplingMetadata(
-                        seq_groups=[_seq_group],
-                        # selected_token_indices=torch.tensor([0], dtype=model_input.sampling_metadata.selected_token_indices.dtype, device=model_input.sampling_metadata.selected_token_indices.device),
-                        selected_token_indices=model_input.sampling_metadata.selected_token_indices[
-                            logit_row_idx : logit_row_idx + 1
-                        ],
-                        categorized_sample_indices=model_input.sampling_metadata.categorized_sample_indices,
-                        num_prompts=model_input.sampling_metadata.num_prompts,
-                        skip_sampler_cpu_output=model_input.sampling_metadata.skip_sampler_cpu_output,
-                        reuse_sampling_tensors=model_input.sampling_metadata.reuse_sampling_tensors,
-                    )
-                    output: SamplerOutput = self.model.sample(
-                        logits=_logits, sampling_metadata=new_sampling_metadata
-                    )
-                    row_outputs.append(output)
 
-                if len(row_outputs) == 1:
-                    batch_row_outputs.append(row_outputs[0])
-                else:
-                    # merge the outputs into a single output
+            # for logit_row_idx, logit_row in enumerate(logits):
+            #     row_outputs: list[SamplerOutput] = []
+            #     _seq_group = model_input.sampling_metadata.seq_groups[logit_row_idx]
+            #     _seq_group.sampling_params = _seq_group.sampling_params.clone()
+            #     # _seq_group.sampling_params.n = len(logit_row)
+            #     for _logit_idx, _logits in enumerate(logit_row):
+            #         # add dim-0 to make it a batch
+            #         _logits.unsqueeze_(0)
+            #         new_sampling_metadata = SamplingMetadata(
+            #             seq_groups=[_seq_group],
+            #             # selected_token_indices=torch.tensor([0], dtype=model_input.sampling_metadata.selected_token_indices.dtype, device=model_input.sampling_metadata.selected_token_indices.device),
+            #             selected_token_indices=model_input.sampling_metadata.selected_token_indices[
+            #                 logit_row_idx : logit_row_idx + 1
+            #             ],
+            #             categorized_sample_indices=model_input.sampling_metadata.categorized_sample_indices,
+            #             num_prompts=model_input.sampling_metadata.num_prompts,
+            #             skip_sampler_cpu_output=model_input.sampling_metadata.skip_sampler_cpu_output,
+            #             reuse_sampling_tensors=model_input.sampling_metadata.reuse_sampling_tensors,
+            #         )
+            #         output: SamplerOutput = self.model.sample(
+            #             logits=_logits, sampling_metadata=new_sampling_metadata
+            #         )
+            #         row_outputs.append(output)
+
+            #     if len(row_outputs) == 1:
+            #         batch_row_outputs.append(row_outputs[0])
+            #     else:
+            #         # merge the outputs into a single output
+            #         seq_outputs: list[SequenceOutput] = []
+            #         group_prompt_logprobs_list: PromptLogprobs = []
+            #         for row in row_outputs:
+            #             seq_outputs.extend(row.outputs[0].samples)
+            #             prompt_logprobs = row.outputs[0].prompt_logprobs
+            #             if isinstance(prompt_logprobs, list):
+            #                 group_prompt_logprobs_list.extend(prompt_logprobs)
+            #             else:
+            #                 group_prompt_logprobs_list.append(prompt_logprobs)
+            #         batch_row_outputs.append(
+            #             CompletionSequenceGroupOutput(
+            #                 seq_outputs, group_prompt_logprobs_list
+            #             )
+            #         )
+
+            for seq_group in model_input.sampling_metadata.seq_groups:
+                seq_ids = seq_group.seq_ids
+                sample_indices = seq_group.sample_indices
+                num_indices_per_seq_id = len(sample_indices) // len(seq_ids)
+
+                for seq_idx in range(len(seq_ids)):
+                    last_sample_index = (seq_idx + 1) * num_indices_per_seq_id - 1
+                    logit_row_idx = sample_indices[last_sample_index]
+
+                    row_outputs: list[SamplerOutput] = []
+                    logit_row = logits[logit_row_idx]
+
+                    for _logit_idx, _logits in enumerate(logit_row):
+                        # add dim-0 to make it a batch
+                        _logits.unsqueeze_(0)
+
+                        _seq_group = SequenceGroupToSample(
+                            seq_ids=seq_ids,
+                            sampling_params=seq_group.sampling_params,
+                            seq_data=seq_group.seq_data,
+                            seq_len=seq_group.seq_len,
+                            query_len=seq_group.query_len,
+                            generator=seq_group.generator,
+                            is_prompt=seq_group.is_prompt,
+                            prompt_logprob_indices=seq_group.prompt_logprob_indices,
+                            sample_indices=[0],
+                        )
+
+                        categorized_sample_indices = {}
+                        for (
+                            key,
+                            value,
+                        ) in (
+                            model_input.sampling_metadata.categorized_sample_indices.items()
+                        ):
+                            if len(value) <= 1:
+                                categorized_sample_indices[key] = value
+                                continue
+
+                            new_value = torch.tensor(
+                                [0],
+                                dtype=value.dtype,
+                                device=value.device,
+                            )
+                            categorized_sample_indices[key] = new_value
+
+                        new_sampling_metadata = SamplingMetadata(
+                            seq_groups=[_seq_group],
+                            selected_token_indices=torch.tensor(
+                                [0],
+                                dtype=model_input.sampling_metadata.selected_token_indices.dtype,
+                                device=model_input.sampling_metadata.selected_token_indices.device,
+                            ),
+                            # selected_token_indices=model_input.sampling_metadata.selected_token_indices[
+                            #     logit_row_idx : logit_row_idx + 1
+                            # ],
+                            # categorized_sample_indices=model_input.sampling_metadata.categorized_sample_indices,
+                            categorized_sample_indices=categorized_sample_indices,
+                            num_prompts=model_input.sampling_metadata.num_prompts,
+                            skip_sampler_cpu_output=model_input.sampling_metadata.skip_sampler_cpu_output,
+                            reuse_sampling_tensors=model_input.sampling_metadata.reuse_sampling_tensors,
+                        )
+                        output: SamplerOutput = self.model.sample(
+                            logits=_logits, sampling_metadata=new_sampling_metadata
+                        )
+                        row_outputs.append(output)
+
+                    # if len(row_outputs) == 1:
+                    #     batch_row_outputs.append(row_outputs[0])
+                    # else:
+                    #     # merge the outputs into a single output
+                    #     seq_outputs: list[SequenceOutput] = []
+                    #     group_prompt_logprobs_list: PromptLogprobs = []
+                    #     for row in row_outputs:
+                    #         seq_outputs.extend(row.outputs[0].samples)
+                    #         prompt_logprobs = row.outputs[0].prompt_logprobs
+                    #         if isinstance(prompt_logprobs, list):
+                    #             group_prompt_logprobs_list.extend(prompt_logprobs)
+                    #         else:
+                    #             group_prompt_logprobs_list.append(prompt_logprobs)
+                    #     batch_row_outputs.append(
+                    #         CompletionSequenceGroupOutput(
+                    #             seq_outputs, group_prompt_logprobs_list
+                    #         )
+                    #     )
+
                     seq_outputs: list[SequenceOutput] = []
                     group_prompt_logprobs_list: PromptLogprobs = []
                     for row in row_outputs:
