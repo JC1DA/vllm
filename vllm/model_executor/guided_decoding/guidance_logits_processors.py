@@ -11,6 +11,7 @@ from transformers import PreTrainedTokenizerBase
 from typing import Union
 from vllm.model_executor.guided_decoding.guidance_utils import TransformersTokenizer
 
+
 class GuidanceLogitsProcessor:
     metadata = {}
 
@@ -65,14 +66,21 @@ class GuidanceLogitsProcessor:
             self.serialized_grammar = self.guide
 
         if f"guidance_tokenizer_{self.tokenizer_name}" not in self.metadata:
-            self.metadata[f"guidance_tokenizer_{self.tokenizer_name}"] = TransformersTokenizer(
-                model=self.tokenizer.name_or_path, transformers_tokenizer=self.tokenizer
+            self.metadata[f"guidance_tokenizer_{self.tokenizer_name}"] = (
+                TransformersTokenizer(
+                    model=self.tokenizer.name_or_path,
+                    transformers_tokenizer=self.tokenizer,
+                )
             )
-        self.guidance_tokenizer = self.metadata[f"guidance_tokenizer_{self.tokenizer_name}"]
+        self.guidance_tokenizer = self.metadata[
+            f"guidance_tokenizer_{self.tokenizer_name}"
+        ]
 
         if f"ll_tokenizer_{self.tokenizer_name}" not in self.metadata:
-            self.metadata[f"ll_tokenizer_{self.tokenizer_name}"] = llguidance.LLTokenizer(
-                llguidance.TokenizerWrapper(self.guidance_tokenizer)
+            self.metadata[f"ll_tokenizer_{self.tokenizer_name}"] = (
+                llguidance.LLTokenizer(
+                    llguidance.TokenizerWrapper(self.guidance_tokenizer)
+                )
             )
         self.ll_tokenizer = self.metadata[f"ll_tokenizer_{self.tokenizer_name}"]
 
@@ -92,6 +100,8 @@ class GuidanceLogitsProcessor:
         logits: torch.Tensor,
     ) -> list[torch.Tensor]:
         self.initialize()
+
+        print("past_tokens_ids", self.guidance_tokenizer.decode(past_tokens_ids))
 
         if self.is_stopped:
             return [logits]
@@ -164,4 +174,3 @@ class GuidanceLogitsProcessor:
             raise e
 
         return [masked_logits]
-    
