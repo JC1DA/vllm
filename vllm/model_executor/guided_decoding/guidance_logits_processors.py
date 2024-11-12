@@ -181,7 +181,7 @@ class GuidanceLogitsProcessor:
                     ),
                 ])
 
-            masked_logits = logits + mask
+            masked_logits = (logits - torch.min(logits)) * mask
             self.new_sampling = True
         except Exception as e:
             raise e
