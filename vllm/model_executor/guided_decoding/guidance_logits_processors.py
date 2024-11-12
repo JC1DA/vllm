@@ -48,6 +48,7 @@ class GuidanceLogitsProcessor:
         self.pending_ff_tokens: list[int] = []
         self.new_sampling = False
         self.initialized = False
+        self.prev_mask = None
 
     def _initialize(self):
         if self.initialized:
@@ -107,6 +108,7 @@ class GuidanceLogitsProcessor:
             self.ll_tokenizer,
             json.dumps(self.serialized_grammar),
             enable_backtrack=False,
+            enable_ff_tokens=False,
             log_level=int(os.environ.get("LLGUIDANCE_LOG_LEVEL", "1")),
         )
 
@@ -130,6 +132,9 @@ class GuidanceLogitsProcessor:
                 self.ll_interpreter.process_prompt(prompt_tokens_ids)
 
             if self.new_sampling and len(past_tokens_ids) > 0:
+                if self.prev_mask:
+                    assert self.prev_mask[past_tokens_ids[-1]], "past token not in mask"
+
                 backtrack, ff_tokens = self.ll_interpreter.post_process(
                     past_tokens_ids[-1])
                 if len(ff_tokens) > 0 and backtrack == 0:
@@ -180,6 +185,8 @@ class GuidanceLogitsProcessor:
                         device=logits.device,
                     ),
                 ])
+
+            self.prev_mask = mask
 
             masked_logits = (logits - torch.min(logits)) * mask
             self.new_sampling = True
