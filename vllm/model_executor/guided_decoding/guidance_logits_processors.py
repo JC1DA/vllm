@@ -132,7 +132,7 @@ class GuidanceLogitsProcessor:
                 self.ll_interpreter.process_prompt(prompt_tokens_ids)
 
             if self.new_sampling and len(past_tokens_ids) > 0:
-                if self.prev_mask:
+                if self.prev_mask is not None:
                     assert self.prev_mask[past_tokens_ids[-1]], "past token not in mask"
 
                 backtrack, ff_tokens = self.ll_interpreter.post_process(

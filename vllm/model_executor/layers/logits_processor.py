@@ -46,10 +46,7 @@ class LogitsProcessor(nn.Module):
         # Whether to use gather or all-gather to gather the logits.
         self.use_gather = not current_platform.is_tpu()
         # Thread pool for applying logits processors in parallel.
-        max_workers = os.cpu_count()
-        if "VLLM_MAX_LOGITS_PROCESSORS_THREADS" in os.environ:
-            max_workers = int(os.environ["VLLM_MAX_LOGITS_PROCESSORS_THREADS"])
-        self.thread_pool = ThreadPoolExecutor(max_workers=max_workers)
+        self.thread_pool = None
 
     def forward(
         self,
@@ -78,12 +75,21 @@ class LogitsProcessor(nn.Module):
 
             # Apply logits processors (if any).
             if sampling_metadata is not None:
-                thread_pool = self.thread_pool if hasattr(
-                    self, "thread_pool") else None
+                thread_pool = None
+                if hasattr(self, "thread_pool"):
+                    if self.thread_pool is None:
+                        self._init_thread_pool()
+                    thread_pool = self.thread_pool
                 logits = _apply_logits_processors(thread_pool, logits,
                                                   sampling_metadata)
 
         return logits
+    
+    def _init_thread_pool(self):
+        max_workers = os.cpu_count()
+        if "VLLM_MAX_LOGITS_PROCESSORS_THREADS" in os.environ:
+            max_workers = int(os.environ["VLLM_MAX_LOGITS_PROCESSORS_THREADS"])
+        self.thread_pool = ThreadPoolExecutor(max_workers=max_workers)
 
     def _get_logits(
         self,
