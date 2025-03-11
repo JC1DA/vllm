@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING, Optional
 from vllm.config import VllmConfig
 from vllm.logger import init_logger
 from vllm.utils import LazyLoader
-from vllm.v1.structured_output.backend_types import StructuredOutputBackend
+from vllm.v1.structured_output.backend_types import (StructuredOutputBackend,
+                                                     StructuredOutputGrammar)
 from vllm.v1.structured_output.backend_xgrammar import XgrammarBackend
-from vllm.v1.structured_output.grammar import Grammar
 
 if TYPE_CHECKING:
     import numpy as np
@@ -54,12 +54,13 @@ class StructuredOutputManager:
                 raise ValueError(
                     f"Unsupported structured output backend: {backend_name}")
 
-        grammar: Future[Grammar] = self.executor.submit(
+        grammar: Future[StructuredOutputGrammar] = self.executor.submit(
             self._async_create_grammar, request, self.backend)
         request.structured_output_request.grammar = grammar  # type: ignore[assignment]
 
-    def _async_create_grammar(self, request: Request,
-                              backend: StructuredOutputBackend) -> Grammar:
+    def _async_create_grammar(
+            self, request: Request,
+            backend: StructuredOutputBackend) -> StructuredOutputGrammar:
         key = request.structured_output_request.structured_output_key  # type: ignore[union-attr]
 
         # Note that the request was validated in the engine core client,
@@ -94,7 +95,7 @@ class StructuredOutputManager:
         for req_id, batch_index in structured_output_request_ids.items():
             request = requests[req_id].structured_output_request
             assert request is not None and request.grammar is not None
-            if not request.grammar.matcher.is_terminated():
+            if not request.grammar.is_terminated():
                 request.grammar.fill_bitmask(bitmask_tensor, batch_index)
         if batch_len < self._grammar_bitmask.shape[0]:
             bitmask_tensor = self._grammar_bitmask[:batch_len]
