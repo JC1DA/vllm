@@ -68,10 +68,3 @@ class Grammar:
     def reset(self):
         self.num_processed_tokens = 0
         self.matcher.reset()
-
-    def __copy__(self):
-        return Grammar(
-            matcher=xgr.GrammarMatcher(self.ctx),
-            vocab_size=self.vocab_size,
-            ctx=self.ctx,
-        )
