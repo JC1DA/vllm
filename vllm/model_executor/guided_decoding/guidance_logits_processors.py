@@ -5,19 +5,17 @@ from typing import Any, List, Type, Union
 
 import llguidance  # type: ignore[import-untyped]
 import llguidance.hf
-import numpy as np
+import llguidance.torch
 import torch
 from pydantic import BaseModel
 from transformers import PreTrainedTokenizerBase
-
-from vllm.model_executor.guided_decoding.guidance_utils import (
-    LLInterpreterResponse)
 
 
 class GuidanceLogitsProcessor:
     """Base Guidance Logits Processor"""
 
     cached_tokenizers: dict[str, Any] = {}
+    cached_grammars: dict[str, Any] = {}
 
     def __init__(
         self,
@@ -47,14 +45,9 @@ class GuidanceLogitsProcessor:
         self.tokenizer_name = tokenizer.name_or_path
         self.whitespace_pattern = whitespace_pattern
 
-        self.is_stopped = False
         self.pending_ff_tokens: list[int] = []
         self.new_sampling = False
         self.initialized = False
-
-    def _initialize(self):
-        if self.initialized:
-            return
 
         if self.mode.lower() == "json":
             if isinstance(self.guide, dict):
@@ -82,11 +75,46 @@ class GuidanceLogitsProcessor:
                 serialized_grammar = json.dumps(self.guide)
             self.serialized_grammar = serialized_grammar
 
+    def _get_serialized_grammar(self):
+        if self.mode.lower() == "json":
+            if isinstance(self.guide, dict):
+                schema = json.dumps(self.guide)
+            elif isinstance(self.guide, BaseModel):
+                schema = json.dumps(self.guide.model_json_schema())
+            else:
+                schema = str(self.guide)
+
+            whitespaces_config = {}
+            if isinstance(self.whitespace_pattern, str):
+                whitespaces_config = json.loads(self.whitespace_pattern)
+
+            whitespace_flexible = whitespaces_config.get(
+                "whitespace_flexible", False)
+            compiler = llguidance.JsonCompiler(
+                whitespace_flexible=whitespace_flexible)
+            return compiler.compile(schema)
+        elif self.mode.lower() in ["regex", "choice"]:
+            compiler = llguidance.RegexCompiler()
+            return compiler.compile(regex=self.guide)
+        elif self.mode.lower() == "grammar":
+            serialized_grammar = self.guide
+            if isinstance(self.guide, dict):
+                serialized_grammar = json.dumps(self.guide)
+            return serialized_grammar
+
+        raise ValueError(f"Invalid mode: {self.mode}")
+
+    def _initialize(self):
+        if self.initialized:
+            return
+
+        self.serialized_grammar = self._get_serialized_grammar()
         ll_tokenizer = self.cached_tokenizers.get(self.tokenizer.name_or_path,
                                                   None)
         if ll_tokenizer is None:
             ll_tokenizer = llguidance.hf.from_tokenizer(self.tokenizer, None)
             self.cached_tokenizers[self.tokenizer.name_or_path] = ll_tokenizer
+
         self.ll_tokenizer = ll_tokenizer
         self.ll_interpreter = llguidance.LLInterpreter(
             self.ll_tokenizer,
@@ -95,6 +123,10 @@ class GuidanceLogitsProcessor:
             enable_ff_tokens=False,
             log_level=int(os.environ.get("LLGUIDANCE_LOG_LEVEL", "1")),
         )
+
+        # create reusable bitmask
+        self.bitmask = llguidance.torch.allocate_token_bitmask(
+            1, self.ll_tokenizer.vocab_size)
 
         self.initialized = True
 
@@ -107,7 +139,11 @@ class GuidanceLogitsProcessor:
         # to avoid pickling ll_tokenizer and ll_interpreter
         self._initialize()
 
-        if self.is_stopped:
+        if self.ll_interpreter.has_pending_stop():
+            if self.ll_tokenizer.eos_token is not None:
+                scores.add_(-scores)
+                scores[self.ll_tokenizer.eos_token] = 200.0
+
             return scores
 
         if self.new_sampling and len(input_ids) > 0:
@@ -127,30 +163,10 @@ class GuidanceLogitsProcessor:
             scores[ff_token] = 200.0
             return scores
 
-        mask, resp = self.ll_interpreter.compute_mask()
-        r = LLInterpreterResponse.model_validate_json(resp)
-
-        if r.stop:
-            mask = np.zeros(scores.shape[-1], dtype=np.uint8)
-            if self.ll_tokenizer.eos_token is not None:
-                mask[self.ll_tokenizer.eos_token] = 200
-            self.is_stopped = True
-        elif mask is None:
-            # NOTE: mask should not be None unless r.stop is True
-            # However, we are handling this case just in case
-            # llguidance allows free-style generation
-            mask = np.zeros(scores.shape[-1], dtype=np.uint8)
-        else:
-            mask = np.frombuffer(mask, dtype=np.uint8)
-
-        # Force all invalid tokens to have 0 value
-        scores.add_(-torch.min(scores))
-        zero_indices = np.where(mask == 0)[0]
-        scores[zero_indices] = 0.0
-        non_zero_indices = np.nonzero(mask)[0]
-        scores[non_zero_indices] += 200.0
-        # set special tokens not in vocab to 0
-        scores[mask.shape[0]:] = 0.0
+        llguidance.torch.fill_next_token_bitmask(self.ll_interpreter,
+                                                 self.bitmask, 0)
+        llguidance.torch.apply_token_bitmask_inplace(
+            scores, self.bitmask.to(scores.device))
         self.new_sampling = True
 
         return scores
