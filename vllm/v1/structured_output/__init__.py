@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Optional
 
 from vllm.config import VllmConfig
 from vllm.logger import init_logger
-from vllm.utils import LazyLoader
 from vllm.v1.structured_output.backend_types import (StructuredOutputBackend,
                                                      StructuredOutputGrammar)
 from vllm.v1.structured_output.backend_xgrammar import XgrammarBackend
@@ -16,11 +15,8 @@ if TYPE_CHECKING:
     import numpy as np
     import numpy.typing as npt
     import torch
-    import xgrammar as xgr
 
     from vllm.v1.request import Request
-else:
-    xgr = LazyLoader("xgr", globals(), "xgrammar")
 
 logger = init_logger(__name__)
 
