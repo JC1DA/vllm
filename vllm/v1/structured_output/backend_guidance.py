@@ -82,19 +82,22 @@ class GuidanceBackend(StructuredOutputBackend):
 
         return GuidanceGrammar(
             ll_interpreter=ll_interpreter,
+            ll_tokenizer=self.ll_tokenizer,
             vocab_size=self.vocab_size,
         )
 
     def allocate_token_bitmask(self, max_num_seqs: int):
-        return llguidance_torch.allocate_token_bitmask(max_num_seqs,
-                                                       self.vocab_size)
+        return llguidance_torch.allocate_token_bitmask(
+            max_num_seqs, self.ll_tokenizer.vocab_size)
 
 
 @dataclass
 class GuidanceGrammar(StructuredOutputGrammar):
 
     ll_interpreter: llguidance.LLInterpreter
+    ll_tokenizer: llguidance_hf.LLTokenizer
     vocab_size: int
+    stopped: bool = False
 
     def accept_tokens(self, request_id: str, tokens: list[int]) -> bool:
         """Accepts a list of tokens and advances the FSM.
@@ -102,19 +105,31 @@ class GuidanceGrammar(StructuredOutputGrammar):
         Returns True if the FSM was advanced successfully.
         Returns False if the FSM failed to advance.
         """
+
+        if self.stopped:
+            return True
+
         for token in tokens:
             # TODO - Add jump decoding support in the future.
             # For now we turn this off when creating the LLInterpreter.
             #backtrack, ff_tokens = self.ll_interpreter.commit_token(token)
             self.ll_interpreter.commit_token(token)
+
         return True
 
     def fill_bitmask(self, bitmask: torch.Tensor, idx: int) -> None:
-        llguidance_torch.fill_next_token_bitmask(self.ll_interpreter, bitmask,
-                                                 idx)
+        if self.ll_interpreter.has_pending_stop():
+            # fill bitmask with eos token before is_terminated() return True
+            eos_token = self.ll_tokenizer.eos_token
+            bitmask[idx, :] = 0
+            bitmask[idx, eos_token // 32] = 1 << (eos_token % 32)
+            self.stopped = True
+        else:
+            llguidance_torch.fill_next_token_bitmask(self.ll_interpreter,
+                                                     bitmask, idx)
 
     def is_terminated(self) -> bool:
-        return self.ll_interpreter.has_pending_stop()
+        return self.stopped
 
     def reset(self):
         # This method may be not needed anymore? TODO
