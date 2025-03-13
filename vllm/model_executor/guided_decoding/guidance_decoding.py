@@ -12,6 +12,7 @@ from vllm.sampling_params import GuidedDecodingParams
 
 class GuidedDecodingMode(Enum):
     JSON = "json"
+    JSON_OBJECT = "json_object"
     REGEX = "regex"
     CHOICE = "choice"
     GRAMMAR = "grammar"
@@ -32,6 +33,9 @@ def get_local_guidance_guided_decoding_logits_processor(
     if guided_params.json:
         guide = guided_params.json
         mode = GuidedDecodingMode.JSON.value
+    elif guided_params.json_object:
+        guide = "{}"
+        mode = GuidedDecodingMode.JSON_OBJECT.value
     elif guided_params.regex:
         guide = guided_params.regex
         mode = GuidedDecodingMode.REGEX.value

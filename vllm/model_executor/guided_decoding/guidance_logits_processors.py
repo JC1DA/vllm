@@ -50,7 +50,9 @@ class GuidanceLogitsProcessor:
         self.initialized = False
 
     def _get_serialized_grammar(self):
-        if self.mode.lower() == "json":
+        if self.mode.lower() in ["json", "json_object"]:
+            if self.mode.lower() == "json_object":
+                schema = "{}"
             if isinstance(self.guide, dict):
                 schema = json.dumps(self.guide)
             elif isinstance(self.guide, BaseModel):
