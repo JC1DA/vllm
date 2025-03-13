@@ -7,6 +7,7 @@ import llguidance  # type: ignore[import-untyped]
 import llguidance.hf
 import llguidance.torch
 import torch
+from llguidance.gbnf_to_lark import any_to_lark  # type: ignore[import-untyped]
 from pydantic import BaseModel
 from transformers import PreTrainedTokenizerBase
 
@@ -70,10 +71,9 @@ class GuidanceLogitsProcessor:
             compiler = llguidance.RegexCompiler()
             self.serialized_grammar = compiler.compile(regex=self.guide)
         elif self.mode.lower() == "grammar":
-            serialized_grammar = self.guide
-            if isinstance(self.guide, dict):
-                serialized_grammar = json.dumps(self.guide)
-            self.serialized_grammar = serialized_grammar
+            # grammar can be in EBNF or LARK syntax
+            compiler = llguidance.LarkCompiler()
+            self.serialized_grammar = compiler.compile(any_to_lark(self.guide))
 
     def _get_serialized_grammar(self):
         if self.mode.lower() == "json":
