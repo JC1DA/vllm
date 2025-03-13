@@ -49,31 +49,6 @@ class GuidanceLogitsProcessor:
         self.new_sampling = False
         self.initialized = False
 
-        if self.mode.lower() == "json":
-            if isinstance(self.guide, dict):
-                schema = json.dumps(self.guide)
-            elif isinstance(self.guide, BaseModel):
-                schema = json.dumps(self.guide.model_json_schema())
-            else:
-                schema = str(self.guide)
-
-            whitespaces_config = {}
-            if isinstance(self.whitespace_pattern, str):
-                whitespaces_config = json.loads(self.whitespace_pattern)
-
-            whitespace_flexible = whitespaces_config.get(
-                "whitespace_flexible", False)
-            compiler = llguidance.JsonCompiler(
-                whitespace_flexible=whitespace_flexible)
-            self.serialized_grammar = compiler.compile(schema)
-        elif self.mode.lower() in ["regex", "choice"]:
-            compiler = llguidance.RegexCompiler()
-            self.serialized_grammar = compiler.compile(regex=self.guide)
-        elif self.mode.lower() == "grammar":
-            # grammar can be in EBNF or LARK syntax
-            compiler = llguidance.LarkCompiler()
-            self.serialized_grammar = compiler.compile(any_to_lark(self.guide))
-
     def _get_serialized_grammar(self):
         if self.mode.lower() == "json":
             if isinstance(self.guide, dict):
@@ -96,10 +71,9 @@ class GuidanceLogitsProcessor:
             compiler = llguidance.RegexCompiler()
             return compiler.compile(regex=self.guide)
         elif self.mode.lower() == "grammar":
-            serialized_grammar = self.guide
-            if isinstance(self.guide, dict):
-                serialized_grammar = json.dumps(self.guide)
-            return serialized_grammar
+            # grammar can be in EBNF or LARK syntax
+            compiler = llguidance.LarkCompiler()
+            return compiler.compile(any_to_lark(self.guide))
 
         raise ValueError(f"Invalid mode: {self.mode}")
 
