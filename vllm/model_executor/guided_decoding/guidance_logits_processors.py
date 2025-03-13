@@ -16,7 +16,6 @@ class GuidanceLogitsProcessor:
     """Base Guidance Logits Processor"""
 
     cached_tokenizers: dict[str, Any] = {}
-    cached_grammars: dict[str, Any] = {}
 
     def __init__(
         self,
