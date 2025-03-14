@@ -34,7 +34,7 @@ def get_local_guidance_guided_decoding_logits_processor(
         guide = guided_params.json
         mode = GuidedDecodingMode.JSON.value
     elif guided_params.json_object:
-        guide = "{}"
+        guide = '{"type": "object"}'
         mode = GuidedDecodingMode.JSON_OBJECT.value
     elif guided_params.regex:
         guide = guided_params.regex
